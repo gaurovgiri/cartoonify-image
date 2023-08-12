@@ -1,0 +1,24 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Transformation App</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <h1>Image Transformation App</h1>
+    
+    <form method="POST" action="/" enctype="multipart/form-data">
+        <span>Content Image</span>
+        <input type="file" name="content_image">
+        <span>Style Image</span>
+        <input type="file" name="style_image">
+        <button type="submit">Transform Images</button>
+    </form>
+
+    {% if transformed_image %}
+        <h2>Transformed Image</h2>
+        <img src="data:image/png;base64,{{ transformed_image }}" alt="Transformed Image">
+    {% endif %}
+</body>
+</html>
