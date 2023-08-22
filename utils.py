@@ -33,5 +33,3 @@ def display_image(data):
     img = img.transpose(1,2,0).astype('uint8')
     img = Image.fromarray(img)
     img.show()
-
-
