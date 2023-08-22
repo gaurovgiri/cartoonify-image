@@ -1,98 +1,107 @@
-import tensorflow as tf
-import numpy as np
+
+import re
+import torch
+from torchvision import transforms
+from transformer_net import TransformerNet
 import cv2
+import gc
+from PIL import Image
+import utils
 
-# Load VGG19 model pretrained on ImageNet
-vgg = tf.keras.applications.VGG19(include_top=False, weights='imagenet')
-vgg.trainable = False
 
-# Content and style layers for style transfer
-content_layers = ['block5_conv2']
-style_layers = [
-    'block1_conv1',
-    'block2_conv1',
-    'block3_conv1',
-    'block4_conv1',
-    'block5_conv1'
-]
-
-num_content_layers = len(content_layers)
-num_style_layers = len(style_layers)
-
-def preprocess_image(image_path):
-    # image = cv2.imread(image_path)
-    image = cv2.imdecode(np.fromstring(image_path.read(), np.uint8), cv2.IMREAD_UNCHANGED)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    image = tf.image.convert_image_dtype(image, tf.float32)
-    image = tf.image.resize(image, (256, 256))
-    image = image[tf.newaxis, :]
-    return image
-
-def gram_matrix(tensor):
-    result = tf.linalg.einsum('bijc,bijd->bcd', tensor, tensor)
-    input_shape = tf.shape(tensor)
-    num_locations = tf.cast(input_shape[1] * input_shape[2], tf.float32)
-    return result / num_locations
-
-def get_content_model():
-    content_model = tf.keras.models.Model(
-        vgg.input, outputs=[vgg.get_layer(name).output for name in content_layers]
-    )
-    return content_model
-
-def get_style_model():
-    style_model = tf.keras.models.Model(
-        vgg.input, outputs=[vgg.get_layer(name).output for name in style_layers]
-    )
-    return style_model
-
-def clip_0_1(image):
-    return tf.clip_by_value(image, clip_value_min=0.0, clip_value_max=1.0)
-
-def style_transfer(content_image, style_image, num_iterations=10, content_weight=1e2, style_weight=30):
-    content_image = preprocess_image(content_image)
-    style_image = preprocess_image(style_image)
+def stylizeImage(content_image,styleno=2):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
+    model = f'data/style{styleno}/nst.model'
     
-    content_model = get_content_model()
-    style_model = get_style_model()
+    content_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.mul(255))
+    ])
 
-    target_content = content_model(content_image)
-    target_style = style_model(style_image)
+    content_image = content_transform(content_image)
+    content_image = content_image.unsqueeze(0).to(device)
 
-    generated_image = tf.Variable(content_image)
+    with torch.no_grad():
+        style_model = TransformerNet()
+        state_dict = torch.load(model)
+        
+        for k in list(state_dict.keys()):
+            if re.search(r'in\d+\.running_(mean|var)$', k):
+                del state_dict[k]
+        style_model.load_state_dict(state_dict)
+        style_model.to(device)
+        style_model = torch.nn.DataParallel(style_model)
+        output = style_model(content_image).cpu()
+    return output[0]
 
-    optimizer = tf.optimizers.Adam(learning_rate=0.03, beta_1=0.99, epsilon=1e-1)
+def stylizeVideo(input_video_path, output_video_path, styleno=2):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = f'data/style{styleno}/nst.model'
+    content_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Lambda(lambda x: x.mul(255))
+    ])
 
-    for iteration in range(num_iterations):
-        with tf.GradientTape() as tape:
-            gen_content = content_model(generated_image)
-            gen_style = style_model(generated_image)
+    with torch.no_grad():
+        state_model = TransformerNet()
+        state_dict = torch.load(model)
 
-            content_loss = tf.reduce_mean(tf.square(gen_content - target_content))
+        for k in list(state_dict.keys()):
+            if re.search(r'in\d+\.running_(mean|var)$', k):
+                del state_dict[k]
+        state_model.load_state_dict(state_dict)
+        state_model.to(device)
+        style_model = torch.nn.DataParallel(state_model)
+    
+        cap = cv2.VideoCapture(input_video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+        while(cap.isOpened()):
+            ret, frame = cap.read()
+            if ret == True:
+                content_image = frame
+                content_image = content_transform(content_image)
+                content_image = content_image.unsqueeze(0).to(device)
+                output = style_model(content_image).cpu()
+                output = output.squeeze(0)
+                output = output.permute(1,2,0)
+                output = output.numpy()
+                output = output.astype('uint8')
+                output = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
+                out.write(output)
+            else:
+                break
+        cap.release()
+        out.release()
+        cv2.destroyAllWindows()
 
-            style_loss = 0
-            for target_gram, gen_gram in zip(target_style, gen_style):
-                style_loss += tf.reduce_mean(tf.square(gram_matrix(gen_gram) - gram_matrix(target_gram)))
-            style_loss /= num_style_layers
-            
-            total_loss = content_weight * content_loss + style_weight * style_loss
+def stylizeCamera(styleno=2):
+    cap = cv2.VideoCapture(0)
+    while(True):
+        ret, frame = cap.read()
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame = cv2.resize(frame, (256, 256))
+        frame = stylizeImage(frame)
+        frame = frame.squeeze(0)
+        frame = frame.permute(1,2,0)
+        frame = frame.numpy()
+        frame = frame.astype('uint8')
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        cv2.imshow('frame', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
 
-        gradients = tape.gradient(total_loss, generated_image)
-        optimizer.apply_gradients([(gradients, generated_image)])
-        generated_image.assign(clip_0_1(generated_image))
-        print(f"Iteration: {iteration + 1}, Total Loss: {total_loss.numpy()}")
+# def main():
+#     inputImg = utils.load_image("data/original.jpg")
+#     outputImg = stylizeImage(inputImg)
+#     utils.save_image("data/output.jpg", outputImg)
 
-    return generated_image.numpy()
 
-# content_image_path = "content.png"
-# style_image_path = "style.png"
-# output_image = style_transfer(content_image_path, style_image_path)
-
-# output_image = np.squeeze(output_image, axis=0)
-# output_image = (output_image * 255).astype(np.uint8)
-# output_image = cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB)
-
-# cv2.imshow("Cartoonized Image", output_image)
-# cv2.waitKey(0)
-# cv2.destroyAllWindows()
-# cv2.imwrite("cartoonized_image.jpg", output_image)
+# if __name__ == "__main__":
+#     main()

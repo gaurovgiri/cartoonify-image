@@ -1,28 +1,25 @@
-from flask import Flask, render_template, request
-from nst import style_transfer
-import numpy as np
-import cv2
-import base64
+import streamlit as st
+from nst import stylizeImage
+from PIL import Image
 
 
-app = Flask(__name__)
+def main():
+    st.title("Neural Style Transfer")
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    transformed_image = None
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg","jpeg","png"])
 
-    if request.method == 'POST':
-        if 'content_image' in request.files and 'style_image' in request.files:
-            content_image = request.files['content_image']
-            style_image = request.files['style_image']
-            transformed_image = style_transfer(content_image, style_image)
-            transformed_image = np.squeeze(transformed_image, axis=0)
-            transformed_image = (transformed_image * 255).astype(np.uint8)
-            transformed_image = cv2.cvtColor(transformed_image, cv2.COLOR_BGR2RGB)
-            _, transformed_encoded = cv2.imencode('.png', transformed_image)
-            transformed_image = base64.b64encode(transformed_encoded).decode()
+    if uploaded_file is not None:
+        content_image = Image.open(uploaded_file)
+        st.image(content_image, caption='Uploaded Image.', use_column_width=True)
 
-    return render_template('index.html', transformed_image=transformed_image)
+        style_choice = st.radio("Choose a style", (1,2))
 
-if __name__ == '__main__':
-    app.run(debug=True)
+        if st.button("Stylize"):
+            data = stylizeImage(content_image, style_choice)
+            img = data.clone().clamp(0, 255).numpy()
+            img = img.transpose(1, 2, 0).astype("uint8")
+            img = Image.fromarray(img)
+            st.image(img, caption='Stylized Image.', use_column_width=True)
+    
+if __name__ == "__main__":
+    main()

@@ -69,6 +69,7 @@ class ResidualBlock(torch.nn.Module):
         return y + x
     
 class UpsampleConvLayer(torch.nn.Module):
+    
     def __init__(self, in_channels, out_channels, kernel_size, stride, upsample=None):
         super(UpsampleConvLayer, self).__init__()
         reflection_padding = kernel_size // 2
