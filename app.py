@@ -6,13 +6,13 @@ from PIL import Image
 def main():
     st.title("Neural Style Transfer")
 
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg","jpeg","png"])
+    uploaded_file = st.file_uploader("Choose an image...", type=["jpg","jpeg"])
 
     if uploaded_file is not None:
         content_image = Image.open(uploaded_file)
         st.image(content_image, caption='Uploaded Image.', use_column_width=True)
 
-        style_choice = st.radio("Choose a style", (1,2))
+        style_choice = st.radio("Choose a style", (1,2,3))
 
         if st.button("Stylize"):
             data = stylizeImage(content_image, style_choice)
