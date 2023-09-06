@@ -1,4 +1,3 @@
-
 import re
 import torch
 from torchvision import transforms
@@ -11,12 +10,12 @@ import utils
 
 def stylizeImage(content_image,styleno=2):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device("cpu")
     model = f'data/style{styleno}/nst.model'
     
     content_transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.mul(255))
+        transforms.Lambda(lambda x: x.mul(255)),
+        transforms.Resize(512)
     ])
 
     content_image = content_transform(content_image)
